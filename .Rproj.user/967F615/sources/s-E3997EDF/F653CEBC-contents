@@ -1,0 +1,6 @@
+list(hh, individual) <-lapply(list(hh, individual), function(x) filter(date >= as.Date("2021-04-01") & 
+                                                                         date < as.Date("2021-04-30"))) 
+
+  
+
+

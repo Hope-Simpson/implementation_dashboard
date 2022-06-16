@@ -1,0 +1,4 @@
+enumerators <- hh %>% 
+  filter(((date == max(hh$date) )  )) %>% 
+  group_by(HH_implementer_id, hh_outcome) %>% 
+  summarise(n_hhs = n())

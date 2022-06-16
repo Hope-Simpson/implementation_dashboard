@@ -1,0 +1,8 @@
+"0","## data for chart 3 : Duration of interviews
+survey_duration <- hh[!is.na(hh$age_hoh),] %>% 
+  arrange(starttime) %>%
+  group_by( HH_implementer_id, hh_outcome) %>% 
+  summarise(mean_dur = mean(duration))
+"
+"2","`summarise()` has grouped output by 'HH_implementer_id'. You can override using the `.groups` argument.
+"

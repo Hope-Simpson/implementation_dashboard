@@ -1,0 +1,26 @@
+{
+    "id": "F74E51CD",
+    "path": "~/GitHub/implementation_dashboard/example_dashboard.Rmd",
+    "project_path": "example_dashboard.Rmd",
+    "type": "r_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1655197015054.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "tempName": "Untitled2",
+        "cursorPosition": "22,12",
+        "scrollLine": "0",
+        "last_setup_crc32": "E3997EDF9ffe59fc"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1655375588,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1655375588848,
+    "read_only": false,
+    "read_only_alternatives": []
+}

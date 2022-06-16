@@ -1,0 +1,414 @@
+---
+title: "LF Morbidity Survey in Bongouanou, Cote d'Ivoire"
+output:
+  flexdashboard::flex_dashboard:
+    storyboard: true
+    social: menu
+    source: embed
+    css = <style type="text/css"> .sidebar { overflow: auto; } </style>
+
+---
+
+```{r setup, include = FALSE, cache = TRUE}
+library(dplyr)
+library(lubridate)
+library(statar)
+library(flexdashboard)
+library(plotly)
+library(cowplot)
+library(knitr)
+library(stringr)
+library(leaflet)
+library(sf)
+library(hms)
+library(mapview)
+library(tmap)
+library(kableExtra)
+library(stargazer)
+
+# Read dataset of household interviews
+hh <- read.csv("anonymous_data/survey_household_data.csv")
+
+nrow(hh) # 9415
+
+# filter by date to reduce dataset for the demo
+hh <- hh %>%
+  filter(date >= as.Date("2021-04-01") & 
+         date < as.Date("2021-04-30"))
+
+# how many submissions in total? 
+n_subs_hh_all <- nrow(hh)
+n_subs_hh_all # 2761
+
+# how many implementers submitted data today?
+n_implementers_submitted <- n_distinct(c(hh[hh$date ==  max(hh$date),]$HH_implementer_id))
+
+# How many household interviews were undertaken today?
+n_subs_hh <- nrow(hh[hh$date ==  max(hh$date),])
+
+# Read dataset of individual examinations
+individual <-  read.csv("anonymous_data/survey_individual_data.csv")
+# filter by date to reduce dataset for the demo
+individual <- individual %>%
+  filter(date >= as.Date("2021-04-01") & 
+         date < as.Date("2021-04-30"))
+
+# How many people were examined today?
+n_h_hh_exams <- nrow(individual[individual$date==max(individual$date),])
+
+# How many people have been examined in total?
+n_individual <- nrow(individual)
+
+# How many do we need to do?
+left <- 12271 - n_individual
+
+# How many cases of hydrocele have been found in the survey so far?
+n_hc_found <- nrow(individual[!is.na(individual$diagnosis_lf_hydrocoele) & individual$diagnosis_lf_hydrocoele_1==1,])
+
+# How many cases of lymphedema have been found in the survey so far?
+n_le_found <-  nrow(individual[!is.na(individual$diagnosis_lymph_1) & individual$diagnosis_lymph_1==1,])
+
+# How many cases of hydrocele were found today?
+n_hc_today <- nrow(individual[individual$date== max(individual$date) &  !is.na(individual$diagnosis_lf_hydrocoele) & individual$diagnosis_lf_hydrocoele==1,])
+
+# How many cases of lymphedema were found today?
+n_le_today <-  nrow(individual[individual$date== max(individual$date) & !is.na(individual$diagnosis_lymph) & individual$diagnosis_lymph_1==1,])
+
+# How many form versions were in use?
+n_defs <- n_distinct(hh[hh$date ==  max(hh$date),]$formdef_version)
+
+# make a table showing the form version and number of complete screens by implementer today
+formdefs <- hh %>%   filter(date ==  max(hh$date)) %>%   
+  group_by(HH_implementer_id, formdef_version) %>% summarise(total_subs = n())
+
+```
+
+### Summary
+
+Most recent HH survey date: `r max(hh$date)`   
+Script run on: `r today()`  
+
+There were `r n_subs_hh` complete submissions of HH questionnaires from `r n_implementers_submitted` implementers on `r max(hh$date)`.
+
+The total number of HH questionnaire submissions since 18/03/2021 is `r n_subs_hh_all`.  
+
+A total of `r n_h_hh_exams` People were individual today. The  number of people individual overall is now `r n_individual` and we are `r left` away from the target (12,217). 
+
+There were `r n_le_today` diagnoses of LF lymphedema through the HH survey on `r max(individual$date)`, bringing the total number detected since 18/03 to `r n_le_found`.  
+
+There were `r n_hc_today` diagnoses of LF hydrocele through the HH survey on `r max(individual$date)`, bringing the total number detected since 18/03 to `r n_hc_found`.  
+
+Number of confirmed and excluded individual of LF lymphedema and hydrocele, out of all suspected individual, by village (HH survey):  
+
+- *Form versions in use*
+
+There was/ were `r n_defs` Household (HH) form version(s) in use on `r max(hh$date)`  
+
+```{r}
+formdefs %>%
+  kbl() %>%
+  kable_classic_2(full_width = F)
+```
+Phones not recording electronic signatures
+
+There were `r nrow(individual[individual$exam_consent==1 & !is.na(individual$exam_consent),])` casses of signatures not working
+
+```{r}
+# make a table showing the form version and number of complete screens 
+nosignames <- individual[individual$exam_consent==1 & !is.na(individual$exam_consent) , c("HH_implementer_id", "date") ]
+nosignames %>%
+  kbl() %>%
+  kable_classic_2(full_width = F)
+
+```
+
+***
+
+```{r, include = FALSE}
+
+# check number of interviews, screens, suspect cases by implementer
+n_interviews_implementer <- hh %>% group_by(HH_implementer_id) %>% summarise(total_submissions = n(),  complete_interviews = sum(survey_complete))
+
+n_examined_ind <- individual %>% group_by(HH_implementer_id) %>% summarise(individual = n(), le_suspect = sum(lymphoedema==1, na.rm = TRUE),  hc_suspected = sum(scrotum_swelling==1, na.rm = TRUE))
+
+summary_interview_examined <- as.data.frame(left_join(n_interviews_implementer, n_examined_ind, by =c("HH_implementer_id")))
+
+summary_interview_examined <- summary_interview_examined[with(summary_interview_examined, order(-complete_interviews)), ]
+```
+
+
+### People censused and examined by team and implementer
+
+
+```{r, results='asis'}
+
+kable(summary_interview_examined, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+```
+
+***
+
+
+```{r, include = FALSE}
+
+cluster_polygons_raw <- st_read("anonymous_data/clusters_raw.shp")
+
+nrow(cluster_polygons_raw)
+# filter by date to reduce dataset for the demo
+cluster_polygons_raw <- cluster_polygons_raw %>%
+  filter(date >= as.Date("2021-04-01") & 
+         date < as.Date("2021-04-30"))
+
+
+cluster_polygons_clean <- st_read("anonymous_data/clusters_cleaned.shp")
+cluster_polygons_clean <- cluster_polygons_clean %>%
+  filter(date >= as.Date("2021-04-01") & 
+         date < as.Date("2021-04-30"))
+
+
+```
+
+
+
+### Map 1: Clusters visited most recent survey day
+
+```{r}
+
+paste("Date : ", max(cluster_polygons_raw$date) ) 
+
+mapview(cluster_polygons_raw[cluster_polygons_raw$date==max(cluster_polygons_raw$date),], map.types = c("Esri.WorldImagery"), 
+        color = "black", lwd = 2) 
+```
+- *Map 1: CHW polygons 1*
+
+This shows clusters mapped on the most recent survey day 
+check clusters are not overlapping 
+(HH locations not shown on this map for confidentiality)
+Check HH locations are within geotraces
+
+
+***
+
+
+### Map 2: All Clusters visited
+
+```{r}
+mapview(cluster_polygons_clean, map.types = c("Esri.WorldImagery"), 
+        color = "black", lwd = 2) 
+```
+
+
+
+```{r, include = FALSE}
+
+## data for chart 1 : Number of completed questionnaires for the most recent day, including hh_outcome
+enumerators <- hh %>% 
+  filter(((date == max(hh$date) )  )) %>% 
+  group_by(HH_implementer_id, hh_outcome) %>% 
+  summarise(n_hhs = n())
+
+enumerators <- enumerators[with(enumerators, order(-n_hhs)), ]
+```
+
+
+###  Questionnaires by Implementer (most recent workday only)
+
+```{r}
+enumerators_n_outcome  <-  ggplot(data=enumerators, aes(x=HH_implementer_id, y=n_hhs, fill=hh_outcome)) + 
+  guides(size = FALSE) +
+  scale_color_viridis_d(guide = "none") +
+  geom_bar(stat="identity", position="stack" ) +  
+  labs(title="",
+       x ="", y = "Number of Households") +
+  theme_bw() + theme(legend.title=element_blank(), 
+                     legend.position="none",  
+                     axis.title.x=element_blank(),  
+                     axis.title.y=element_text(),  
+                     panel.background=element_blank(), 
+                     panel.grid.minor=element_blank(), 
+                     panel.grid.major=element_blank()) + 
+scale_fill_manual("legend", values = c("HH complete" = "chartreuse4", "Control HH" = "yellow", "Not HH" = "antiquewhite", "Nobody home" = "antiquewhite3", "Suspect case(s)" = "cornflowerblue", "No adult home" = "antiquewhite4", "Vacant" = "burlywood4", "No verbal consent"="gray1"))
+
+ggplotly(enumerators_n_outcome)
+
+```
+
+***
+
+```{r}
+# dummy plot for legend showing outcome only
+legend <- as.data.frame(unique(enumerators$hh_outcome))
+colnames(legend) <- "hh_outcome"
+legend$n <- 1
+
+ggplot(data=legend, aes(x=hh_outcome, y=n, fill=hh_outcome  )) +   
+  theme_bw() + theme(legend.title=element_blank(), 
+                     legend.position="none",  
+                     axis.title.y=element_blank(),  
+                     axis.text.x=element_blank(),
+                     axis.ticks.x=element_blank(),
+                     axis.title.x=element_blank(),  
+                     panel.background=element_blank(), 
+                     panel.grid.minor=element_blank(), 
+                     panel.grid.major=element_blank()) + 
+  geom_bar(stat="identity") + 
+scale_fill_manual("legend", values = c("HH complete" = "chartreuse4", "Control HH" = "yellow", "Not HH" = "antiquewhite", "Nobody home" = "antiquewhite3", "Suspect case(s)" = "cornflowerblue", "No adult home" = "antiquewhite4", "Vacant" = "burlywood4", "No verbal consent"="gray1")) + coord_flip()
+ 
+```
+
+
+***
+
+
+- *Chart 1: Total number of questionnaires completed by type of questionnaire (outcome)*
+Check implementers recording 0 houses empty or vacant
+
+
+```{r, include = FALSE}
+## data for chart 2 :Start and finish times
+
+# format data for Chart 2-  start and end times
+survey_times <- hh %>% 
+  arrange(starttime) %>%
+  group_by(date,  HH_implementer_id) %>% 
+  summarise(first = min(starttime), last = max(endtime))
+
+lims <- as.POSIXct(strptime(c("06:00", "20:00"), format = "%H:%M"))    
+
+times <- hh[,c("date", "HH_implementer_id", "village_id", "starttime", "endtime", "survey_complete")]
+
+times <- times %>% 
+  arrange(starttime) %>%
+  group_by(date, HH_implementer_id) %>% 
+  summarise(first = min(starttime), last = max(endtime), complete = sum(survey_complete==1, na.rm = TRUE))
+
+
+```
+
+
+### Start/ Finish times
+
+```{r}
+
+# Chart 2-  start and end times
+times$first <-  format(as.POSIXct(times$first, format = "%Y-%m-%d %H:%M:%S"),  "%H:%M")
+times$last <-  format(as.POSIXct(times$last, format = "%Y-%m-%d %H:%M:%S"),  "%H:%M")
+
+times$first  <- as.POSIXct(times$first , format="%H:%M")
+times$last  <- as.POSIXct(times$last, format="%H:%M")
+
+
+times$date <- ymd(times$date)
+
+gg_time <- ggplot(data = times, aes(x = date, y = first)) +
+  geom_jitter(aes(fill = HH_implementer_id), width = 0.1, size = 3, alpha = 0.7) +
+  geom_jitter(aes(y = last, fill = HH_implementer_id), pch =24,  width = 0.1, size = 3.5, alpha = 0.7) +
+  ylab("Time of submission") + 
+  xlab("Date") +
+  theme(legend.position = "none") +
+  ggtitle("Daily start and finish time by enumerator") + scale_y_datetime(limits = lims,
+                                                                          breaks = "2 hour",
+                                                                          date_labels= "%H:%M") 
+
+
+ggplotly(gg_time)
+
+
+
+```
+
+***
+
+- *Chart 2-  start and end times*
+
+Check implementers starting after 10 or starting last interview before 4pm
+
+
+```{r, include = FALSE}
+## data for chart 3 : Duration of interviews
+survey_duration <- hh[!is.na(hh$age_hoh),] %>% 
+  arrange(starttime) %>%
+  group_by( HH_implementer_id, hh_outcome) %>% 
+  summarise(mean_dur = mean(duration))
+```
+
+
+### Duration
+
+```{r}
+duration_outcome <- ggplot(survey_duration, aes(HH_implementer_id, mean_dur)) +   
+  geom_bar(aes(fill = hh_outcome), position = "dodge", stat="identity")  + 
+  theme_bw() + theme(axis.title.x=element_blank(),
+                     axis.text.x=element_blank(),
+                     axis.ticks.x=element_blank(),
+                     legend.position="none") +
+                    labs(title="",
+                     x ="", y = "Duration (minutes)") 
+
+ggplotly(duration_outcome)
+
+
+```
+
+
+***
+
+- *Chart 3-  duration by survey type*
+
+Duration of survey by questionnaire type (all questionnaires)
+Check if any implementers seem to be rushing interviews/ examinations
+
+
+```{r, include = FALSE}
+## data for chart 4& 5 : Examination refusals
+
+# define refusal indicator for lymph and scrotum
+individual$lymph_refuse <- 0
+individual[!is.na(individual$lymph_exam) & individual$lymph_exam==0,]$lymph_refuse <- 1
+
+individual$scrotum_refuse <- 0
+individual[!is.na(individual$scrotum_exam) & individual$scrotum_exam==0,]$scrotum_refuse <- 1
+
+
+refusals <- individual %>% 
+  group_by( HH_implementer_id) %>% 
+  summarise(total = n(),  
+            n_lymph_exam = sum(lymph_exam==1, na.rm = TRUE),
+            n_lymph_refuse = sum(lymph_refuse==1, na.rm = TRUE),
+            n_scrotum_exam = sum(!is.na(scrotum_exam) & scrotum_exam==1, na.rm = TRUE),
+            n_scrotum_refuse = sum(scrotum_refuse==1, na.rm = TRUE))
+
+```
+
+
+### Refusals- Lymphedema
+
+```{r}
+le_refusals_plot <- plot_ly(data=refusals, x = ~HH_implementer_id, y = ~n_lymph_exam, type = 'bar', name = 'Examined for lymphedema') %>%
+  add_trace(y = ~n_lymph_refuse, name = 'Refused limb exam') %>%
+  layout(yaxis = list(title = 'Count'), barmode = 'stack', xaxis = list(
+    title = 'Implementer')) 
+
+le_refusals_plot
+
+```
+***
+- *Chart 6-  number of people refusing examination of limbs  (all questionnaires)*
+
+
+### Refusals- Hydrocele
+
+```{r}
+
+hy_refusals_plot <- plot_ly(data=refusals, x = ~HH_implementer_id, y = ~n_scrotum_exam, type = 'bar', name = 'Examined for hydrocele') %>%
+  add_trace(y = ~n_scrotum_refuse, name = 'Refused scrotum exam') %>%
+  layout(yaxis = list(title = 'Count'), barmode = 'stack', xaxis = list(
+    title = 'Implementer'))  
+
+hy_refusals_plot
+
+```
+***
+- *Chart 7-  number of people refusing scrotum examination  (all questionnaires) *
+
